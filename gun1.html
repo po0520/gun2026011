@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>重力射金幣大賽 - AI 教練版</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: linear-gradient(to bottom, #87CEEB, #E0F7FA);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            touch-action: none;
+            display: flex;
+        }
+        canvas {
+            display: block;
+            flex-grow: 1;
+        }
+        #ui-panel {
+            width: 320px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 20px;
+            box-shadow: -2px 0 10px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            border-left: 1px solid #ddd;
+            z-index: 20;
+            overflow-y: auto; /* 允許垂直捲動以適應 AI 內容 */
+        }
+        .gun-status {
+            background: #f0f0f0;
+            padding: 15px;
+            border-radius: 8px;
+            border: 2px solid transparent;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+        }
+        .gun-status.active {
+            border-color: #FF9800;
+            background: #FFF3E0;
+            box-shadow: 0 0 8px rgba(255, 152, 0, 0.4);
+        }
+        .gun-title {
+            font-weight: bold;
+            font-size: 18px;
+            margin-bottom: 5px;
+            display: flex;
+            justify-content: space-between;
+        }
+        .ammo-display {
+            display: flex;
+            gap: 3px;
+            margin: 8px 0;
+        }
+        .bullet-icon {
+            width: 8px;
+            height: 16px;
+            background: #555;
+            border-radius: 2px 2px 0 0;
+        }
+        .bullet-icon.empty {
+            background: #ccc;
+        }
+        .reload-btn {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            width: 100%;
+            font-weight: bold;
+            margin-top: 5px;
+            opacity: 1;
+            transition: opacity 0.2s;
+        }
+        .reload-btn:disabled {
+            background: #9E9E9E;
+            cursor: not-allowed;
+        }
+        .stats-row {
+            font-size: 14px;
+            color: #555;
+            margin-top: 5px;
+        }
+        #global-stats {
+            margin-top: auto;
+            border-top: 2px solid #ddd;
+            padding-top: 15px;
+        }
+        .bar-container {
+            width: 100%;
+            height: 8px;
+            background: #eee;
+            border-radius: 4px;
+            margin-top: 4px;
+            overflow: hidden;
+        }
+        .bar-fill {
+            height: 100%;
+            background: #2196F3;
+            width: 0%;
+            transition: width 0.5s;
+        }
+        h2 { margin: 0 0 10px 0; font-size: 20px; color: #333; }
+        .instructions {
+            font-size: 13px;
+            color: #666;
+            margin-bottom: 15px;
+            line-height: 1.4;
+        }
+        
+        /* AI Section Styles */
+        #ai-section {
+            border-top: 2px solid #E1BEE7;
+            padding-top: 15px;
+            margin-top: 10px;
+        }
+        #ai-btn {
+            background: linear-gradient(45deg, #7B1FA2, #E91E63);
+            box-shadow: 0 4px 10px rgba(123, 31, 162, 0.3);
+        }
+        #ai-result {
+            font-size: 13px;
+            color: #444;
+            margin-top: 10px;
+            background: #F3E5F5;
+            padding: 12px;
+            border-radius: 8px;
+            line-height: 1.5;
+            min-height: 50px;
+            display: none;
+            border-left: 4px solid #9C27B0;
+        }
+        .loading-dots:after {
+            content: '.';
+            animation: dots 1.5s steps(5, end) infinite;
+        }
+        @keyframes dots {
+            0%, 20% { content: '.'; }
+            40% { content: '..'; }
+            60% { content: '...'; }
+            80%, 100% { content: ''; }
+        }
+    </style>
+</head>
+<body>
+
+    <div style="position: relative; flex-grow: 1;">
+        <canvas id="gameCanvas"></canvas>
+    </div>
+
+    <div id="ui-panel">
+        <h2>射金幣大賽</h2>
+        <div class="instructions">
+            1. 選擇槍枝 (點擊區塊)<br>
+            2. 點擊「上膛」按鈕<br>
+            3. 等待 0.2s 金幣掉落<br>
+            4. 點擊槍身發射 (預判重力加速!)
+        </div>
+
+        <!-- Gun A -->
+        <div class="gun-status active" id="gun-0" onclick="selectGun(0)">
+            <div class="gun-title">槍枝 A (頂部) <span id="acc-0">0%</span></div>
+            <div class="ammo-display" id="ammo-0">
+                <div class="bullet-icon"></div><div class="bullet-icon"></div>
+                <div class="bullet-icon"></div><div class="bullet-icon"></div><div class="bullet-icon"></div>
+            </div>
+            <button class="reload-btn" id="btn-0" onclick="loadGun(0, event)">上膛 (準備)</button>
+            <div class="stats-row">命中: <span id="hits-0">0</span> / 發射: <span id="shots-0">0</span></div>
+        </div>
+
+        <!-- Gun B -->
+        <div class="gun-status" id="gun-1" onclick="selectGun(1)">
+            <div class="gun-title">槍枝 B (中部) <span id="acc-1">0%</span></div>
+            <div class="ammo-display" id="ammo-1">
+                <div class="bullet-icon"></div><div class="bullet-icon"></div>
+                <div class="bullet-icon"></div><div class="bullet-icon"></div><div class="bullet-icon"></div>
+            </div>
+            <button class="reload-btn" id="btn-1" onclick="loadGun(1, event)">上膛 (準備)</button>
+            <div class="stats-row">命中: <span id="hits-1">0</span> / 發射: <span id="shots-1">0</span></div>
+        </div>
+
+        <!-- Gun C -->
+        <div class="gun-status" id="gun-2" onclick="selectGun(2)">
+            <div class="gun-title">槍枝 C (底部) <span id="acc-2">0%</span></div>
+            <div class="ammo-display" id="ammo-2">
+                <div class="bullet-icon"></div><div class="bullet-icon"></div>
+                <div class="bullet-icon"></div><div class="bullet-icon"></div><div class="bullet-icon"></div>
+            </div>
+            <button class="reload-btn" id="btn-2" onclick="loadGun(2, event)">上膛 (準備)</button>
+            <div class="stats-row">命中: <span id="hits-2">0</span> / 發射: <span id="shots-2">0</span></div>
+        </div>
+        
+        <!-- AI Coach Section -->
+        <div id="ai-section">
+            <div class="gun-title" style="color: #7B1FA2;">✨ AI 物理教練</div>
+            <button id="ai-btn" class="reload-btn" onclick="analyzeStatsWithGemini()">分析我的表現</button>
+            <div id="ai-result"></div>
+        </div>
+
+        <div id="global-stats">
+            <div class="gun-title" style="font-size: 16px;">全體玩家統計</div>
+            <div style="font-size: 13px; margin-bottom: 5px;">平均命中率: <span id="global-acc">42%</span></div>
+            <div class="bar-container"><div class="bar-fill" id="global-bar" style="width: 42%"></div></div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // 遊戲狀態
+        let activeGunIndex = 0;
+        let lastTime = 0;
+        const guns = [
+            { id: 0, yRatio: 0.25, ammo: 5, maxAmmo: 5, hits: 0, shots: 0, loaded: false, color: '#E91E63' }, // A (粉紅)
+            { id: 1, yRatio: 0.50, ammo: 5, maxAmmo: 5, hits: 0, shots: 0, loaded: false, color: '#2196F3' }, // B (藍)
+            { id: 2, yRatio: 0.75, ammo: 5, maxAmmo: 5, hits: 0, shots: 0, loaded: false, color: '#FF9800' }  // C (橘)
+        ];
+
+        let coins = [];
+        let bullets = [];
+        let particles = [];
+        
+        // 物理常數
+        const GRAVITY = 800; // 重力加速度 (px/s^2)
+        const DELAY_DROP = 250; // 上膛後掉落延遲 (ms)
+
+        // 初始化畫布
+        function resize() {
+            canvas.width = window.innerWidth - 320; // 扣除 UI 寬度
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // 選擇槍枝
+        window.selectGun = function(index) {
+            activeGunIndex = index;
+            document.querySelectorAll('.gun-status').forEach((el, i) => {
+                el.classList.toggle('active', i === index);
+            });
+        };
+
+        // 上膛與掉落邏輯
+        window.loadGun = function(index, event) {
+            event.stopPropagation(); // 防止觸發切換槍枝
+            const gun = guns[index];
+            
+            if (gun.ammo <= 0) {
+                // 重置子彈 (模擬重新一局)
+                gun.ammo = 5;
+                gun.hits = 0;
+                gun.shots = 0;
+                updateUI();
+                return; // 重置後需再次點擊上膛
+            }
+
+            // 鎖定按鈕防止連點
+            const btn = document.getElementById(`btn-${index}`);
+            btn.disabled = true;
+            btn.innerText = "等待金幣...";
+
+            // 選擇該槍枝
+            selectGun(index);
+
+            // 0.2~0.3秒後掉落金幣
+            setTimeout(() => {
+                spawnCoin();
+                gun.loaded = true;
+                btn.innerText = "射擊!";
+                btn.style.background = "#F44336"; // 變紅提示可射擊
+                
+                // 提示文字: 點擊槍發射
+                createFloatingText("點擊槍枝發射!", canvas.width - 100, guns[index].yRatio * canvas.height, guns[index].color);
+            }, DELAY_DROP); // 固定 250ms 延遲
+        };
+
+        // 發射邏輯 (點擊畫布右側槍枝區域觸發)
+        canvas.addEventListener('mousedown', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const clickY = e.clientY - rect.top;
+            
+            const gun = guns[activeGunIndex];
+            const gunY = gun.yRatio * canvas.height;
+
+            // 判定是否點擊了當前活動的槍枝附近 (簡單判定)
+            const dist = Math.hypot(clickX - (canvas.width - 60), clickY - gunY);
+            
+            if (dist < 80 && gun.loaded && gun.ammo > 0) {
+                fireBullet(activeGunIndex);
+            }
+        });
+
+        function fireBullet(gunIndex) {
+            const gun = guns[gunIndex];
+            gun.ammo--;
+            gun.shots++;
+            gun.loaded = false; // 需重新上膛
+
+            // 重置按鈕狀態
+            const btn = document.getElementById(`btn-${gunIndex}`);
+            btn.disabled = false;
+            btn.innerText = gun.ammo === 0 ? "重置彈藥" : "上膛 (準備)";
+            btn.style.background = gun.ammo === 0 ? "#607D8B" : "#4CAF50";
+
+            // 生成子彈 (直線向左)
+            bullets.push({
+                x: canvas.width - 80,
+                y: gun.yRatio * canvas.height - 5, // 稍微修正槍口位置
+                vx: -1500, // 高速直線
+                vy: 0,
+                radius: 6,
+                color: gun.color,
+                owner: gunIndex,
+                active: true
+            });
+
+            updateUI();
+        }
+
+        function spawnCoin() {
+            // 金幣從隨機 X 位置，頂部生成
+            // 為了讓玩家有機會射中，生成位置應在螢幕左側區域
+            const xPos = Math.random() * (canvas.width * 0.6) + 50; 
+            coins.push({
+                x: xPos,
+                y: -40,
+                vy: 0, // 初始速度 0
+                radius: 20,
+                rotation: 0,
+                active: true
+            });
+        }
+
+        function createExplosion(x, y, color) {
+            for(let i=0; i<15; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const speed = Math.random() * 150 + 50;
+                particles.push({
+                    x: x, y: y,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    life: 1.0,
+                    color: color
+                });
+            }
+        }
+
+        function createFloatingText(text, x, y, color) {
+            particles.push({
+                text: text,
+                x: x, y: y,
+                vx: 0, vy: -50,
+                life: 1.5,
+                color: color,
+                isText: true
+            });
+        }
+
+        function updateUI() {
+            guns.forEach((gun, i) => {
+                // 更新子彈圖示
+                const ammoContainer = document.getElementById(`ammo-${i}`);
+                ammoContainer.innerHTML = '';
+                for(let j=0; j<gun.maxAmmo; j++) {
+                    const div = document.createElement('div');
+                    div.className = `bullet-icon ${j >= gun.ammo ? 'empty' : ''}`;
+                    ammoContainer.appendChild(div);
+                }
+
+                // 更新命中數據
+                document.getElementById(`hits-${i}`).innerText = gun.hits;
+                document.getElementById(`shots-${i}`).innerText = gun.shots;
+                
+                const acc = gun.shots > 0 ? Math.round((gun.hits / gun.shots) * 100) : 0;
+                document.getElementById(`acc-${i}`).innerText = `${acc}%`;
+            });
+
+            // 更新全體數據 (模擬變動)
+            const totalShots = guns.reduce((sum, g) => sum + g.shots, 0);
+            const totalHits = guns.reduce((sum, g) => sum + g.hits, 0);
+            const globalAcc = totalShots > 0 ? Math.round((totalHits / totalShots) * 100) : 0;
+            
+            // 混合一點隨機波動模擬 "全體玩家"
+            const simulatedGlobal = Math.round((globalAcc * 0.3) + (42 * 0.7)); // 加權平均
+            
+            document.getElementById('global-acc').innerText = `${simulatedGlobal}%`;
+            document.getElementById('global-bar').style.width = `${simulatedGlobal}%`;
+        }
+
+        // Gemini API 分析功能
+        async function analyzeStatsWithGemini() {
+            const btn = document.getElementById('ai-btn');
+            const resultDiv = document.getElementById('ai-result');
+            const apiKey = ""; // API Key 會在執行時自動填入
+            
+            // 準備數據
+            const stats = guns.map((g, i) => {
+                const acc = g.shots > 0 ? Math.round(g.hits/g.shots*100) : 0;
+                return `槍枝${String.fromCharCode(65+i)}(${['高','中','低'][i]}位置): ${g.hits}/${g.shots} 命中率${acc}%`;
+            }).join(', ');
+            
+            // UI 載入狀態
+            btn.disabled = true;
+            btn.innerText = "分析中...";
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = '正在讀取物理數據 <span class="loading-dots"></span>';
+
+            try {
+                const prompt = `你是物理老師兼電競教練。根據玩家在重力射擊遊戲的表現：[${stats}]。遊戲機制是金幣受重力(g=${GRAVITY}px/s²)加速下墜。請給出一段簡短幽默的評語(100字內)，並針對命中率最低的位置提供具體的物理建議（例如：A位置金幣剛掉落速度慢，B/C位置速度快需要更大的前置量）。用繁體中文回答。`;
+                
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: prompt }] }]
+                    })
+                });
+                
+                if (!response.ok) throw new Error('Network response was not ok');
+
+                const data = await response.json();
+                const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "無法獲取分析，請稍後再試。";
+                
+                // 模擬打字機效果
+                let i = 0;
+                resultDiv.innerText = "";
+                const typeWriter = () => {
+                    if (i < text.length) {
+                        resultDiv.innerText += text.charAt(i);
+                        i++;
+                        setTimeout(typeWriter, 30);
+                    } else {
+                        btn.disabled = false;
+                        btn.innerText = "再次分析";
+                    }
+                };
+                typeWriter();
+                
+            } catch (e) {
+                resultDiv.innerText = "連線錯誤，AI 教練目前休息中。(可能是API Key問題或網路不穩)";
+                console.error(e);
+                btn.disabled = false;
+                btn.innerText = "分析我的表現";
+            }
+        }
+
+        // 遊戲主迴圈
+        function gameLoop(timestamp) {
+            const dt = Math.min((timestamp - lastTime) / 1000, 0.1);
+            lastTime = timestamp;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 1. 繪製槍枝
+            guns.forEach((gun, i) => {
+                const y = gun.yRatio * canvas.height;
+                const isSelected = i === activeGunIndex;
+                
+                ctx.save();
+                ctx.translate(canvas.width - 50, y);
+                
+                // 槍身
+                ctx.fillStyle = isSelected ? gun.color : '#999';
+                ctx.beginPath();
+                ctx.moveTo(0, -10);
+                ctx.lineTo(-60, -10); // 槍管朝左
+                ctx.lineTo(-60, 10);
+                ctx.lineTo(0, 15);
+                ctx.fill();
+
+                // 槍托
+                ctx.fillStyle = '#444';
+                ctx.fillRect(-10, 5, 20, 25);
+
+                // 標號
+                ctx.fillStyle = 'white';
+                ctx.font = 'bold 14px Arial';
+                ctx.fillText(String.fromCharCode(65+i), -10, 5);
+
+                ctx.restore();
+
+                // 瞄準線 (僅活動槍枝顯示)
+                if (isSelected && gun.loaded) {
+                    ctx.beginPath();
+                    ctx.strokeStyle = gun.color;
+                    ctx.setLineDash([5, 5]);
+                    ctx.moveTo(canvas.width - 110, y);
+                    ctx.lineTo(0, y);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                }
+            });
+
+            // 2. 更新與繪製金幣
+            coins.forEach(coin => {
+                if (!coin.active) return;
+                
+                // 物理公式： v = v0 + gt
+                coin.vy += GRAVITY * dt;
+                coin.y += coin.vy * dt;
+                coin.rotation += 5 * dt;
+
+                // 繪製
+                ctx.save();
+                ctx.translate(coin.x, coin.y);
+                ctx.rotate(coin.rotation);
+                
+                ctx.beginPath();
+                ctx.arc(0, 0, coin.radius, 0, Math.PI * 2);
+                ctx.fillStyle = '#FFD700';
+                ctx.fill();
+                ctx.strokeStyle = '#DAA520';
+                ctx.lineWidth = 3;
+                ctx.stroke();
+                
+                ctx.fillStyle = '#B8860B';
+                ctx.font = '20px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('$', 0, 2);
+                
+                ctx.restore();
+
+                // 邊界檢查
+                if (coin.y > canvas.height + 50) coin.active = false;
+            });
+
+            // 3. 更新與繪製子彈
+            bullets.forEach(b => {
+                if (!b.active) return;
+                b.x += b.vx * dt;
+
+                ctx.beginPath();
+                ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
+                ctx.fillStyle = b.color;
+                ctx.fill();
+
+                // 邊界檢查
+                if (b.x < -50) b.active = false;
+
+                // 碰撞檢測 (簡單圓形碰撞)
+                coins.forEach(coin => {
+                    if (!coin.active) return;
+                    const dx = b.x - coin.x;
+                    const dy = b.y - coin.y;
+                    const dist = Math.sqrt(dx*dx + dy*dy);
+                    
+                    if (dist < b.radius + coin.radius) {
+                        // 命中!
+                        coin.active = false;
+                        b.active = false;
+                        createExplosion(coin.x, coin.y, '#FFD700');
+                        createFloatingText("+10", coin.x, coin.y, '#FF5722');
+                        
+                        // 更新統計
+                        guns[b.owner].hits++;
+                        updateUI();
+                    }
+                });
+            });
+
+            // 4. 更新與繪製粒子/文字
+            particles.forEach(p => {
+                p.life -= dt;
+                p.x += p.vx * dt;
+                p.y += p.vy * dt;
+                
+                if (p.life <= 0) return;
+
+                ctx.save();
+                ctx.globalAlpha = p.life;
+                
+                if (p.isText) {
+                    ctx.fillStyle = p.color;
+                    ctx.font = 'bold 24px Arial';
+                    ctx.fillText(p.text, p.x, p.y);
+                } else {
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+                    ctx.fillStyle = p.color;
+                    ctx.fill();
+                }
+                ctx.restore();
+            });
+
+            // 清理陣列
+            coins = coins.filter(c => c.active);
+            bullets = bullets.filter(b => b.active);
+            particles = particles.filter(p => p.life > 0);
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        updateUI();
+        requestAnimationFrame(gameLoop);
+
+    </script>
+</body>
+</html>
